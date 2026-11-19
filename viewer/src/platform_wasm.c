@@ -102,3 +102,7 @@ bool nn_flash_write(uint32_t address, const void *data, uint32_t length) {
 }
 
 void nn_suspend(void) {}
+
+void nn_poll(void) {}
+
+void nn_resume(void) {}
