@@ -61,8 +61,9 @@ DEFINE_SVC(svc_scan, SVC_KEYBOARD_SCAN)
 DEFINE_SVC(svc_suspend, SVC_POWER_SUSPEND)
 DEFINE_SVC(svc_millis, SVC_TIMING_MILLIS)
 
-/* Last level set by the app (-1: never changed), restored after a suspend. */
-static int s_brightness = -1;
+/* Last level set by the app (0: never changed), restored after a suspend.
+ * Left zero-initialized: the app may not have initialized globals (.data). */
+static int s_brightness;
 
 /* Rects are passed by value as four int16s packed into two registers. */
 static uint32_t pack(int a, int b) {
@@ -153,7 +154,7 @@ static int pop_pending(void) {
 /* The kernel restores its own backlight level after a suspend; put back the
  * one the user picked in the app. */
 void nn_resume(void) {
-  if (s_brightness >= 0) svc_set_brightness((uint32_t)s_brightness, 0, 0, 0);
+  if (s_brightness > 0) svc_set_brightness((uint32_t)s_brightness, 0, 0, 0);
 }
 
 /* Provided by the linker (both NumWorks' installer and the NumNotes site). */
