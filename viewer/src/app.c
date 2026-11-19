@@ -225,6 +225,7 @@ void app_render(void) {
     g.clip = g.area;
     draw_all(&g);
     nn_display_push(g.area.x, g.area.y, g.area.w, g.area.h, s_band);
+        nn_poll();
   }
 }
 
@@ -300,7 +301,7 @@ void app_event(int ev, uint32_t now) {
   }
   if (ev == EV_ONOFF) {
     store_save();
-    nn_suspend();
+    nn_resume();
     app_invalidate();
     return;
   }
