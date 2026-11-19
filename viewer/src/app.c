@@ -225,6 +225,7 @@ void app_render(void) {
     g.clip = g.area;
     draw_all(&g);
     nn_display_push(g.area.x, g.area.y, g.area.w, g.area.h, s_band);
+    nn_poll();
   }
 }
 
@@ -299,8 +300,12 @@ void app_event(int ev, uint32_t now) {
     return;
   }
   if (ev == EV_ONOFF) {
+    /* The firmware has already switched the calculator off and back on by
+     * the time this event arrives (Epsilon's own apps only redraw here).
+     * Suspending again would put it straight back to sleep on every wake-up,
+     * so the screen never stays on. Just save, restore and redraw. */
     store_save();
-    nn_suspend();
+    nn_resume();
     app_invalidate();
     return;
   }
