@@ -61,6 +61,9 @@ DEFINE_SVC(svc_scan, SVC_KEYBOARD_SCAN)
 DEFINE_SVC(svc_suspend, SVC_POWER_SUSPEND)
 DEFINE_SVC(svc_millis, SVC_TIMING_MILLIS)
 
+/* Last level set by the app (-1: never changed), restored after a suspend. */
+static int s_brightness = -1;
+
 /* Rects are passed by value as four int16s packed into two registers. */
 static uint32_t pack(int a, int b) {
   return ((uint32_t)(uint16_t)a) | ((uint32_t)(uint16_t)b << 16);
@@ -84,7 +87,10 @@ bool nn_battery_charging(void) { return svc_charging(0, 0, 0, 0) & 0xFF; }
 
 int nn_brightness(void) { return (int)(svc_brightness(0, 0, 0, 0) & 0xFF); }
 
-void nn_set_brightness(int level) { svc_set_brightness((uint32_t)level, 0, 0, 0); }
+void nn_set_brightness(int level) {
+  s_brightness = level;
+  svc_set_brightness((uint32_t)level, 0, 0, 0);
+}
 
 bool nn_flash_erase_sector(uint32_t address) {
   /* External flash: 8 x 4K sectors, one 32K sector, then 64K sectors. */
@@ -109,9 +115,45 @@ static bool home_pressed(void) {
   return (svc_scan(0, 0, 0, 0) >> KEY_HOME_BIT) & 1;
 }
 
+/* The kernel watches how long the app goes without asking for an event. Past
+ * about 500 ms it treats the app as "stalling", and a press on On/Off is then
+ * handled from inside a timer interrupt: the calculator is suspended there and
+ * may jump back to Epsilon's home checkpoint on wake-up, which leaves it
+ * frozen until a reset. Drawing a full-screen picture can take that long, so
+ * nn_poll() asks for an event every POLL_INTERVAL_MS during long work and
+ * keeps whatever it gets for the main loop. */
+#define POLL_INTERVAL_MS 150
+#define PENDING_MAX 16
+
+static uint32_t s_last_poll;
+static int s_pending[PENDING_MAX];
+static int s_pending_head, s_pending_len;
+
 static int next_event(int32_t timeout) {
   int32_t t = timeout;
-  return (int)(svc_get_event((uint32_t)&t, 0, 0, 0) & 0xFF);
+  int ev = (int)(svc_get_event((uint32_t)&t, 0, 0, 0) & 0xFF);
+  s_last_poll = nn_millis();
+  return ev;
+}
+
+void nn_poll(void) {
+  if (nn_millis() - s_last_poll < POLL_INTERVAL_MS) return;
+  int ev = next_event(0);
+  if (ev >= EV_SPECIAL || s_pending_len == PENDING_MAX) return;
+  s_pending[(s_pending_head + s_pending_len++) % PENDING_MAX] = ev;
+}
+
+static int pop_pending(void) {
+  int ev = s_pending[s_pending_head];
+  s_pending_head = (s_pending_head + 1) % PENDING_MAX;
+  s_pending_len--;
+  return ev;
+}
+
+/* The kernel restores its own backlight level after a suspend; put back the
+ * one the user picked in the app. */
+void nn_resume(void) {
+  if (s_brightness >= 0) svc_set_brightness((uint32_t)s_brightness, 0, 0, 0);
 }
 
 /* Provided by the linker (both NumWorks' installer and the NumNotes site). */
@@ -130,6 +172,7 @@ ENTRY_POINT int main(int argc, char *argv[]) {
   (void)argv;
   app_boot(nn_content, 0x01000000u, nn_store, (uint32_t)nn_store, &_heap_start,
            &_heap_end);
+  s_last_poll = nn_millis();
   app_render();
   while (!app_exited()) {
     uint32_t now = nn_millis();
@@ -137,7 +180,7 @@ ENTRY_POINT int main(int argc, char *argv[]) {
     app_render();
     int32_t timeout = 60000;
     if (wake != UINT32_MAX) timeout = wake > now ? (int32_t)NN_MIN(wake - now, 60000u) : 0;
-    int ev = next_event(timeout);
+    int ev = s_pending_len ? pop_pending() : next_event(timeout);
     if (ev == EV_HOME || home_pressed()) {
       app_exit();
       break;
