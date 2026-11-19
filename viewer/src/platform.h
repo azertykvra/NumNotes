@@ -26,4 +26,11 @@ bool nn_flash_write(uint32_t address, const void *data, uint32_t length);
 
 void nn_suspend(void);
 
+/* Call regularly during long work (drawing): keeps the firmware from treating
+ * the app as frozen. Events it picks up are delivered later, in order. */
+void nn_poll(void);
+
+/* Called after the calculator woke up from a suspend. */
+void nn_resume(void);
+
 #endif
